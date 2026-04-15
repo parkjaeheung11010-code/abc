@@ -107,4 +107,86 @@ if uploaded_file:
             elif v_fire == "소방포함/ 비성능위주": m_fire = f_in and not p_in
             elif v_fire == "소방제외/ 성능위주": m_fire = not f_in and p_in
             elif v_fire == "소방제외/ 비성능위주": m_fire = not f_in and not p_in
-            else: m_fire = not (f_in or
+            else: m_fire = not (f_in or p_in)
+
+            # 세대수 판정
+            m_unit = True
+            if v_unit != "전체":
+                if "100세대 미만" in v_unit: m_unit = row_unit < 100
+                elif "101~300" in v_unit: m_unit = 101 <= row_unit <= 300
+                elif "301~500" in v_unit: m_unit = 301 <= row_unit <= 500
+                elif "501~1000" in v_unit: m_unit = 501 <= row_unit <= 1000
+                elif "1001~2000" in v_unit: m_unit = 1001 <= row_unit <= 2000
+                elif "2001~3000" in v_unit: m_unit = 2001 <= row_unit <= 3000
+                else: m_unit = row_unit >= 3001
+
+            m_spec = check_multi_filter(v_specs, row_spec, spec_list)
+            m_note = check_multi_filter(v_notes, row_note, note_list)
+
+            # 최종 판정
+            if all([m_loc, m_year, m_hvac, m_unit, m_type, m_fire, m_spec, m_note]):
+                found_data.append({
+                    "index": j,
+                    "프로젝트명": p_name,
+                    "년도": row_year,
+                    "세대수": int(row_unit),
+                    "연면적": row_area,
+                    "냉난방": row_hvac
+                })
+
+        # --- 결과 화면 ---
+        if found_data:
+            res_df = pd.DataFrame(found_data)
+            
+            # 요약 지표
+            col1, col2, col3 = st.columns(3)
+            col1.metric("검색 결과", f"{len(found_data)} 건")
+            col2.metric("평균 세대수", f"{int(res_df['세대수'].mean())} 세대")
+            col3.metric("평균 연면적", f"{res_df['연면적'].mean():,.0f} 평")
+            
+            # 리스트와 상세보기
+            st.write("---")
+            st.subheader("📋 검색된 프로젝트 목록")
+            
+            # 간결한 표로 보여주기
+            st.dataframe(res_df.drop(columns=['index']), use_container_width=True, hide_index=True)
+            
+            # 상세 정보 선택
+            st.write("---")
+            selected_p = st.selectbox("🔍 상세 내용을 보려면 프로젝트를 선택하세요", ["선택하세요"] + res_df['프로젝트명'].tolist())
+            
+            if selected_p != "선택하세요":
+                p_idx = res_df[res_df['프로젝트명'] == selected_p]['index'].values[0]
+                
+                # 상세 데이터 테이블 생성
+                st.markdown(f"<p class='project-header'>📌 {selected_p} 상세 제원</p>", unsafe_allow_html=True)
+                html = '<table style="width:100%; border-collapse:collapse; font-size:12px; border: 1px solid #ddd;">'
+                for r in range(49):
+                    html += f"""
+                    <tr>
+                        <td style="border:1px solid #ddd; padding:5px; font-weight:bold; background:#f1f3f5; width:20%;">{get_val(df,r,0)}</td>
+                        <td style="border:1px solid #ddd; padding:5px; color:#666; width:20%;">{get_val(df,r,1)}</td>
+                        <td style="border:1px solid #ddd; padding:5px; width:30%;">{get_val(df,r,p_idx)}</td>
+                        <td style="border:1px solid #ddd; padding:5px; width:30%;">{get_val(df,r,p_idx+1)}</td>
+                    </tr>"""
+                st.markdown(html + '</table>', unsafe_allow_html=True)
+
+            # 결과 다운로드 버튼
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                target_cols = [0, 1] + [d['index'] for d in found_data] + [d['index']+1 for d in found_data]
+                df.iloc[:50, sorted(list(set(target_cols)))].to_excel(writer, index=False, header=False)
+            
+            st.sidebar.download_button(
+                label="📥 현재 결과 다운로드 (Excel)",
+                data=output.getvalue(),
+                file_name="search_results.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else:
+            st.warning("🧐 일치하는 프로젝트가 없습니다. 필터를 조정해 보세요.")
+
+    except Exception as e:
+        st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
+else:
+    st.info("👈 왼쪽 사이드바에서 엑셀 파일을 업로드하면 바로 검색이 시작됩니다.")
